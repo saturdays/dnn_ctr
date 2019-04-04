@@ -102,8 +102,14 @@ class AFM(torch.nn.Module):
 
         if self.dropout_attention>0.0:
             self.attention_linear_0_dropout = nn.Dropout(self.dropout_attention)
-        self.attention_linear_1 = nn.Linear(self.embedding_size, self.attention_size)
-        self.H = torch.nn.Parameter(torch.Tensor(self.attention_size))
+        #self.attention_linear_1 = nn.Linear(self.embedding_size, self.attention_size)
+        #self.H = torch.nn.Parameter(torch.Tensor(self.attention_size))#why not nn.Linear?
+        #self.attention_linear_1.weight.data.normal_(0,0.2)
+        
+        self.H = torch.nn.Parameter(torch.Tensor(self.embedding_size))#why not nn.Linear?
+        self.attn_bn = nn.BatchNorm1d(self.field_size*(self.field_size-1)//2, momentum=None)
+        self.attention_linear_2 = nn.Linear(self.field_size*(self.field_size-1)//2, self.field_size*(self.field_size-1)//2)        
+        self.attention_linear_2.weight.data.normal_(0,0.2)
         self.P = torch.nn.Parameter(torch.Tensor(self.embedding_size))
         self.H.data.normal_(0, 0.2)
         self.P.data.normal_(0, 0.2)
@@ -169,7 +175,7 @@ class AFM(torch.nn.Module):
             interaction_layer = torch.cat(fm_wij_arr, 1)
         else:
             interaction_layer = torch.cat(ffm_wij_arr,1)
-        """
+
         if self.attention_layers_activation == 'sigmoid':
             activation = F.sigmoid
         elif self.attention_layers_activation == 'tanh':
@@ -178,14 +184,17 @@ class AFM(torch.nn.Module):
             activation = F.leaky_relu
         else:
             activation = F.relu
-        """
+
         if self.dropout_attention>0.0:
             interaction_layer = self.attention_linear_0_dropout(interaction_layer)
-        attention_tmp = self.attention_linear_1(interaction_layer.view([-1,self.embedding_size]))
-        attention_tmp = attention_tmp * self.H
-        attention_tmp = torch.sum(attention_tmp,1).view([-1,self.field_size*(self.field_size-1)//2])
+        interaction_layer = interaction_layer.view([-1,self.field_size*(self.field_size-1)//2, self.embedding_size])
+        attention_tmp = torch.sum(interaction_layer*self.H, -1)
+        attention_tmp = activation(attention_tmp)
+        if self.is_batch_norm:
+            attention_tmp = self.attn_bn(attention_tmp)
+        attention_tmp = self.attention_linear_2(attention_tmp)
         attention_weight = torch.nn.Softmax(dim=1)(attention_tmp)
-        attention_output = torch.sum(interaction_layer.view([-1,self.embedding_size])*self.P,1).view([-1,self.field_size*(self.field_size-1)//2])
+        attention_output = torch.sum(interaction_layer*self.P,-1)
         attention_output = attention_output * attention_weight
         """
             sum
