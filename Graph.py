@@ -52,8 +52,7 @@ class ps_server():
         self.length = length
     def get(self, key):
         if key not in self.ps_data:
-            #self.ps_data[key] = np.random.rand(self.length).astype(np.float32)*0.001
-            self.ps_data[key] = np.ones(self.length).astype(np.float32)*0.0001
+            self.ps_data[key] = np.random.rand(self.length).astype(np.float32)*0.001
         return self.ps_data[key]
     def set_key(self, key, v):        
         self.ps_data[key] = v  
