@@ -2,7 +2,9 @@ import sys, os
 import numpy as np
 import matplotlib.pyplot as plt
 import json
-from Graph import graph, create_graph_from_file, ps_server, BKDR2hash64v2
+from stream_model.Graph import graph, create_graph_from_file
+from stream_model.param_server import ps_server, BKDR2hash64v2
+from stream_model import GCN
 
 import torch
 import torch.nn as nn
@@ -18,76 +20,11 @@ from torch.autograd import Function
 #ps_client = ps_server(vector_length*2)#value and grad
 
 filename = 'C:/Users/Hans/train_data.list'
-
-class FM_func(Function):
-    @staticmethod
-    def forward(ctx, features):
-        order1 = torch.sum(features, dim=0)
-        order2 = torch.sum(features*features, dim=0)
-        order2 = 0.5*(order1*order1-order2)
-        ctx.save_for_backward(features, order1)
-        return torch.cat([order1, order2], dim=-1)
-    @staticmethod
-    def backward(ctx, grad_output):
-        features, order1 = ctx.saved_tensors
-        grad = None
-        if ctx.needs_input_grad[0]:
-            output_len = grad_output.shape[-1]//2
-            grad1 = grad_output[...,0:output_len]
-            gard2 = grad_output[..., output_len:]
-            grad = grad1 + gard2*(order1 - features)
-        return grad
-
-class GCN(torch.nn.Module):
-    def __init__(self, gh, vl=32):
-        super(GCN, self).__init__()
-        self.vl = vl
-        self.fc1 = nn.Linear(4*self.vl, 2*self.vl)
-        self.fc2 = nn.Linear(4*self.vl, 2*self.vl)
-        self.g = gh
-    def conv1(self, n1, ft_lv0):
-        node_0 = ft_lv0[n1]
-        if g.get_adj(n1):
-            pool_adj = torch.stack([ft_lv0[n0] for n0 in g.get_adj(n1)])
-            pool_adj = torch.sum(pool_adj, dim=0) 
-            cross = node_0*pool_adj
-            z = torch.cat((node_0+pool_adj, cross), dim=-1) 
-        else:
-            pool_adj = torch.zeros(node_0.shape)
-            z = torch.cat((node_0, pool_adj), dim=-1) 
-        return z
-    def conv2(self, n2, ft_lv1, node_l1_idx):
-        node_1 = ft_lv1[node_l1_idx[n2]]
-        if g.get_adj(n2):
-            pool_adj = torch.stack([ft_lv1[node_l1_idx[n1]] for n1 in g.get_adj(n2)])
-            pool_adj = torch.sum(pool_adj, dim=0)            
-            cross = node_1*pool_adj
-            z = torch.cat((node_1+pool_adj, cross), dim=-1)  
-        else:
-            pool_adj = torch.zeros(node_1.shape)            
-            z = torch.cat((node_1, pool_adj), dim=-1)     
-        return z
-    def forward(self, node_l2, node_l1, node_tensors):
-        #create level0 features from base features
-        ft_lv0 = {n0:FM_func.apply(node_tensors[n0]) for n0 in node_tensors.keys()}
-        #node_l2 nodes that need claculate level2 feature
-        node_l1_idx = {n1:idx for idx, n1 in enumerate(node_l1)}
-        #calculate level1 features
-        z = torch.stack([self.conv1(n1, ft_lv0) for n1 in node_l1])
-        z = self.fc1(z)
-        ft_lv1 = F.relu(z)
-        #calculate level2 features
-        z = torch.stack([self.conv2(n2, ft_lv1, node_l1_idx) for n2 in node_l2])
-        z = self.fc2(z)
-        z = F.relu(z)
-        ft_lv2 = F.normalize(z, dim=-1)
-        return ft_lv2
-
 model = GCN(g, vector_length)
 Parameters = filter(lambda p: p.requires_grad, model.parameters())
 optimizer = torch.optim.Adagrad(Parameters, 0.01, weight_decay=1e-5)
 criterion = nn.BCELoss()
-batch = 16
+batch = 4
 MAXGDSUM=100000000
 alpha=0.999
 lr=0.01
@@ -131,6 +68,9 @@ def calculate_key_grad(node_keys, node_tensors):
     key_grads = {}
     for node, keys in node_keys.items():
         node_grad = node_tensors[node].grad.numpy()
+        nan_count = np.sum(np.isnan(node_grad))
+        if nan_count>0:
+            print('nan grad ', nan_count)
         node_grad = np.nan_to_num(node_grad)
         for idx, key in enumerate(keys):
             if key not in key_grads:
@@ -171,7 +111,7 @@ def batch_train(batch_uid, batch_user_dy, batch_did, batch_doc_dy, target):
     #print('create time:', time.time()-start)  
     ft_lv2 = model(node_l2, node_l1, node_tensors)
     output = torch.sum(ft_lv2[0:batch]*ft_lv2[batch:], dim=-1)
-    loss = criterion(output, target)
+    loss = criterion(output, target)/batch
     print('loss ', loss.item())
     loss.backward()
     key_grads = calculate_key_grad(node_keys, node_tensors)

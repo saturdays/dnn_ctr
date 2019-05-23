@@ -5,17 +5,8 @@ Created on Fri May 17 10:13:08 2019
 @author: Hans
 """
 import json
-import numpy as np
+from stream_model.param_server import BKDR2hash64v2
 
-seed = 131
-mask=0x0fffffffffffffff
-
-def BKDR2hash64v2(str):
-    hash = 0
-    for c in str:
-        hash = hash*seed + ord(c)
-    return hash&mask
-    
 class node():
     def __init__(self):
         self.items = []
@@ -46,16 +37,6 @@ class graph():
             self.graph[n1] = node()
         return self.graph[n1].items
 
-class ps_server():
-    def __init__(self, length):
-        self.ps_data = {}
-        self.length = length
-    def get(self, key):
-        if key not in self.ps_data:
-            self.ps_data[key] = np.random.rand(self.length).astype(np.float32)*0.001
-        return self.ps_data[key]
-    def set_key(self, key, v):        
-        self.ps_data[key] = v  
 
 def create_graph_from_file(filename):
     g = graph()
